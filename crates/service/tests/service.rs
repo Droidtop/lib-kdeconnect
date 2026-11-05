@@ -23,6 +23,7 @@ fn start(name: &str, state: PathBuf, peer_udp_port: u16) -> Service {
     let s = Service::start(Settings {
         name: name.into(),
         device_type: DeviceType::Desktop,
+        receive_dir: Some(state.join("received")),
         state_dir: state,
         link,
         plugins: Enabled::default(),
@@ -74,6 +75,31 @@ fn pair_ping_restart_unpair() {
     let json = serde_json::to_value(&e).unwrap();
     assert_eq!(json["event"], "plugin");
     assert_eq!(json["plugin"]["plugin"], "ping");
+
+    // Share: a text, a link and a file, A to B; the file lands whole in B's folder under a cleaned name.
+    a.share_text(&b_id, "a code: 1234").unwrap();
+    let e = wait(&b, "text", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::ShareText { .. }, .. }));
+    assert_eq!(e, ServiceEvent::Plugin { id: a_id.clone(), plugin: PluginEvent::ShareText { text: "a code: 1234".into() } });
+    a.share_url(&b_id, "https://example.org/").unwrap();
+    wait(&b, "url", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::ShareUrl { url }, .. } if url == "https://example.org/"));
+    let data: Vec<u8> = (0..300_000u32).map(|i| (i % 253) as u8).collect();
+    let file = kdeconnect_service::plugins::share::Outgoing {
+        name: "../evil/save:1.srm".into(),
+        size: data.len() as i64,
+        last_modified_ms: None,
+        data: Box::new(std::io::Cursor::new(data.clone())),
+        open: false,
+    };
+    a.share_file(&b_id, file).unwrap();
+    wait(&b, "receiving", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::FileReceiving { .. }, .. }));
+    let got = wait(&b, "received", |e| {
+        matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::FileReceived { .. } | PluginEvent::FileFailed { .. }, .. })
+    });
+    let ServiceEvent::Plugin { plugin: PluginEvent::FileReceived { name, path, size, .. }, .. } = got else { panic!("{got:?}") };
+    assert_eq!(name, "save_1.srm");
+    assert_eq!(size, data.len() as u64);
+    assert_eq!(std::fs::read(&path).unwrap(), data);
+    wait(&a, "sent", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::FileSent { size: 300_000, .. }, .. }));
 
     // Restart A: it still knows B as paired, with B's address remembered, and links again.
     drop(a);

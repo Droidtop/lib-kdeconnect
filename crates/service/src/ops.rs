@@ -3,7 +3,7 @@
 //!
 //! | Op | Arguments | Reply |
 //! |---|---|---|
-//! | `start` | `state_dir, name, type?` (`phone`, `tablet`, `desktop`, `laptop`, `tv`), `plugins?` (`{name: bool}`) | `{id, name}` |
+//! | `start` | `state_dir, name, receive_dir?, type?` (`phone`, `tablet`, `desktop`, `laptop`, `tv`), `plugins?` (`{name: bool}`) | `{id, name}` |
 //! | `stop` | | `{}`: once it returns the ports are free; a waiting `event` returns `{"event": "stopped"}` |
 //! | `identity` | | `{id, name}` |
 //! | `devices` | | `{devices: [DeviceView]}` |
@@ -12,6 +12,9 @@
 //! | `addresses` | `addresses: [ip]` | `{}`: the extra addresses (added by hand, a VPN plugin's peers) |
 //! | `pair`, `accept`, `refuse`, `unpair` | `id` | `{}` |
 //! | `ping` | `id, message?` | `{}` |
+//! | `share_text` | `id, text` | `{}` |
+//! | `share_url` | `id, url` | `{}` |
+//! | `share_file` | `id, path` or `fd` (Unix: handed over), `name?`, `size?`, `open?` | `{}`; the outcome comes as an event |
 //!
 //! A failure is `{"error": "..."}` in words a screen can show. A call before `start` is an error, and
 //! `start` while running returns the running device.
@@ -67,7 +70,9 @@ fn start(args: &Value, link: Config) -> Result<Value, String> {
     let state_dir = args.get("state_dir").and_then(Value::as_str).ok_or("no state_dir")?;
     let name = args.get("name").and_then(Value::as_str).unwrap_or("droidtop");
     let device_type = DeviceType::parse(args.get("type").and_then(Value::as_str).unwrap_or("desktop"));
-    let settings = Settings { name: name.into(), device_type, state_dir: PathBuf::from(state_dir), link, plugins: plugins_of(args) };
+    let receive_dir = args.get("receive_dir").and_then(Value::as_str).map(PathBuf::from);
+    let settings =
+        Settings { name: name.into(), device_type, state_dir: PathBuf::from(state_dir), link, plugins: plugins_of(args), receive_dir };
     let s = Service::start(settings).map_err(|e| match e {
         ServiceError::Io(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             "Another KDE Connect is running on this device (the KDE Connect app, or another program). Close it and try again.".to_string()
@@ -129,9 +134,58 @@ pub fn call_with(op: &str, args: &Value, link: Config) -> Value {
             let message = args.get("message").and_then(Value::as_str);
             running()?.ping(id(args)?, message).map(|_| json!({})).map_err(words)
         }
+        "share_text" => {
+            let text = args.get("text").and_then(Value::as_str).ok_or("no text")?;
+            running()?.share_text(id(args)?, text).map(|_| json!({})).map_err(words)
+        }
+        "share_url" => {
+            let url = args.get("url").and_then(Value::as_str).ok_or("no url")?;
+            running()?.share_url(id(args)?, url).map(|_| json!({})).map_err(words)
+        }
+        "share_file" => {
+            let file = outgoing_file(args)?;
+            running()?.share_file(id(args)?, file).map(|_| json!({})).map_err(words)
+        }
         other => Err(format!("unknown KDE Connect operation {other}")),
     })();
     r.unwrap_or_else(|e| json!({ "error": e }))
+}
+
+/// The file `share_file` names: `path`, or on Unix an open file descriptor `fd` the caller hands over (droidtop
+/// passes a document's descriptor, so nothing is copied). `name` overrides the file's own name; `size` is read
+/// from the file when it is a regular one, else taken from `size`, else unknown (-1).
+fn outgoing_file(args: &Value) -> Result<crate::plugins::share::Outgoing, String> {
+    let (file, own_name) = if let Some(p) = args.get("path").and_then(Value::as_str) {
+        let f = std::fs::File::open(p).map_err(|e| format!("Could not open the file: {e}"))?;
+        (f, std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()))
+    } else if let Some(fd) = args.get("fd").and_then(Value::as_i64) {
+        (from_fd(fd)?, None)
+    } else {
+        return Err("no path or fd".into());
+    };
+    let name = args.get("name").and_then(Value::as_str).map(str::to_owned).or(own_name).unwrap_or_else(|| "file".into());
+    let meta = file.metadata().ok().filter(|m| m.is_file());
+    let size = meta.as_ref().map(|m| m.len() as i64).or_else(|| args.get("size").and_then(Value::as_i64)).unwrap_or(-1);
+    let last_modified_ms =
+        meta.and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64);
+    let open = args.get("open").and_then(Value::as_bool).unwrap_or(false);
+    Ok(crate::plugins::share::Outgoing { name, size, last_modified_ms, data: Box::new(file), open })
+}
+
+#[cfg(unix)]
+fn from_fd(fd: i64) -> Result<std::fs::File, String> {
+    use std::os::fd::FromRawFd;
+    let fd = i32::try_from(fd).map_err(|_| "not a file descriptor".to_string())?;
+    if fd < 0 {
+        return Err("not a file descriptor".into());
+    }
+    // The caller hands the descriptor over (droidtop: ParcelFileDescriptor.detachFd); it is closed when sent.
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+#[cfg(not(unix))]
+fn from_fd(_: i64) -> Result<std::fs::File, String> {
+    Err("a file descriptor is only taken on Unix; pass a path".into())
 }
 
 /// Runs one operation with the default link settings.

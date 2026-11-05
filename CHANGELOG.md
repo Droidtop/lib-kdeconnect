@@ -14,3 +14,5 @@ All notable changes to lib-kdeconnect. Versions follow [Semantic Versioning](htt
   `peer` example is a command-line device for checking against the official apps.
 - `kdeconnect-service`: the running device both programs embed. Identity and paired devices on disk,
   remembered addresses, pairing, the ping plugin, and JSON-serialisable views and events.
+- Share: texts, links and files each way (`kdeconnect.share.request`), files stored whole into the program's
+  folder under a cleaned, unique name, and sent from a path or a handed-over file descriptor.

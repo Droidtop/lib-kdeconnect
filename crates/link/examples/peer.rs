@@ -41,6 +41,7 @@ fn now() -> i64 {
 
 fn main() {
     let mut args = std::env::args().skip(1);
+    let mut send: Option<String> = None;
     let (mut name, mut extra, mut pair, mut accept, mut ping, mut dir) = ("droidtop peer".to_string(), vec![], false, false, None, None);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -50,6 +51,7 @@ fn main() {
             "--accept" => accept = true,
             "--ping" => ping = args.next(),
             "--receive-dir" => dir = args.next(),
+            "--send-file" => send = args.next(),
             other => panic!("unknown argument {other}"),
         }
     }
@@ -88,12 +90,22 @@ fn main() {
             link.peer_addr,
             pins.pinned(&link.peer.device_id).is_some()
         );
-        let (cert, pins, ping, dir) = (cert.clone(), pins.clone(), ping.clone(), dir.clone());
-        std::thread::spawn(move || serve(link, cert, pins, pair, accept, ping, dir));
+        let (cert, pins, ping, dir, send) = (cert.clone(), pins.clone(), ping.clone(), dir.clone(), send.clone());
+        std::thread::spawn(move || serve(link, cert, pins, pair, accept, ping, dir, send));
     }
 }
 
-fn serve(mut link: Link, cert: DeviceCert, pins: Arc<Pins>, pair: bool, accept: bool, ping: Option<String>, dir: Option<String>) {
+#[allow(clippy::too_many_arguments)]
+fn serve(
+    mut link: Link,
+    cert: DeviceCert,
+    pins: Arc<Pins>,
+    pair: bool,
+    accept: bool,
+    ping: Option<String>,
+    dir: Option<String>,
+    send: Option<String>,
+) {
     let id = link.peer.device_id.clone();
     let mut pairing = Pairing::new(pins.pinned(&id).is_some());
     let paired = |pins: &Pins, link: &mut Link| {
@@ -102,6 +114,22 @@ fn serve(mut link: Link, cert: DeviceCert, pins: Arc<Pins>, pair: bool, accept: 
         if let Some(p) = &ping {
             link.send(&Packet::new(types::PING).with("message", p.clone())).unwrap();
             println!("sent ping {p:?}");
+        }
+        if let Some(path) = &send {
+            let data = std::fs::read(path).unwrap();
+            let offer = kdeconnect_link::PayloadOffer::open("0.0.0.0".parse().unwrap()).unwrap();
+            let name = std::path::Path::new(path).file_name().unwrap().to_string_lossy().into_owned();
+            let mut np = Packet::new("kdeconnect.share.request")
+                .with("filename", name.clone())
+                .with("numberOfFiles", 1)
+                .with("totalPayloadSize", data.len());
+            offer.attach(&mut np, data.len() as i64);
+            link.send(&np).unwrap();
+            let (cert, pin) = (cert.clone(), link.peer_cert.clone());
+            std::thread::spawn(move || {
+                let r = offer.serve(&cert, pin, &mut data.as_slice(), data.len() as i64, &mut |_| {});
+                println!("sent file {name}: {r:?}");
+            });
         }
     };
     if pair {

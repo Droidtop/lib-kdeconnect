@@ -37,6 +37,8 @@ pub struct Settings {
     pub link: Config,
     /// The plugins switched on (each can be switched off; README, "Plugins").
     pub plugins: plugins::Enabled,
+    /// Where files other devices share are stored; `None` refuses them.
+    pub receive_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -142,6 +144,7 @@ struct Inner {
     me: Identity,
     cert: DeviceCert,
     plugins: plugins::Enabled,
+    receive_dir: Option<PathBuf>,
     trust: Mutex<TrustStore>,
     devices: Mutex<HashMap<String, DeviceState>>,
     events: Mutex<Sender<ServiceEvent>>,
@@ -349,7 +352,7 @@ impl Inner {
         }
     }
 
-    fn packet(&self, id: &str, np: Packet, link: &Link) {
+    fn packet(self: &Arc<Self>, id: &str, np: Packet, link: &Link) {
         if np.kind == types::PAIR {
             let e = {
                 let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
@@ -365,7 +368,16 @@ impl Inner {
         if !paired {
             return;
         }
-        for e in plugins::receive(&self.plugins, &np, link, &self.cert) {
+        let me = Arc::clone(self);
+        let device = id.to_owned();
+        let ctx = || plugins::share::Incoming {
+            receive_dir: self.receive_dir.clone(),
+            cert: self.cert.clone(),
+            peer_ip: link.peer_addr.ip(),
+            peer_cert: link.peer_cert.clone(),
+            emit: Arc::new(move |e| me.emit(ServiceEvent::Plugin { id: device.clone(), plugin: e })),
+        };
+        for e in plugins::receive(&self.plugins, &np, ctx) {
             self.emit(ServiceEvent::Plugin { id: id.to_owned(), plugin: e });
         }
     }
@@ -386,6 +398,7 @@ impl Service {
             me: me.clone(),
             cert: cert.clone(),
             plugins: settings.plugins,
+            receive_dir: settings.receive_dir,
             trust: Mutex::new(trust),
             devices: Mutex::new(HashMap::new()),
             events: Mutex::new(tx),
@@ -520,6 +533,38 @@ impl Service {
             return Err(ServiceError::NotPaired);
         }
         self.inner.send(id, np)
+    }
+
+    /// Shares a text (`kdeconnect.share.request` with `text`).
+    pub fn share_text(&self, id: &str, text: &str) -> Result<(), ServiceError> {
+        self.send(id, plugins::share::text_packet(text))
+    }
+
+    /// Shares a link the other device opens.
+    pub fn share_url(&self, id: &str, url: &str) -> Result<(), ServiceError> {
+        self.send(id, plugins::share::url_packet(url))
+    }
+
+    /// Sends a file. The packet goes now; the bytes go when the other device connects for them (within 10 s), on a
+    /// thread of their own. The outcome comes as [`plugins::PluginEvent::FileSent`] or `FileSendFailed`.
+    pub fn share_file(&self, id: &str, file: plugins::share::Outgoing) -> Result<(), ServiceError> {
+        let pin = {
+            let devices = self.inner.devices.lock().unwrap_or_else(|e| e.into_inner());
+            let d = devices.get(id).ok_or_else(|| ServiceError::UnknownDevice(id.to_owned()))?;
+            d.peer_cert.clone().ok_or(ServiceError::NotReachable)?
+        };
+        let (np, offer) = plugins::share::file_packet(&file, IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))?;
+        self.send(id, np)?;
+        let (inner, id, cert) = (Arc::clone(&self.inner), id.to_owned(), self.inner.cert.clone());
+        std::thread::spawn(move || {
+            let plugins::share::Outgoing { name, size, mut data, .. } = file;
+            let e = match offer.serve(&cert, pin, &mut data, size, &mut |_| {}) {
+                Ok(n) => plugins::PluginEvent::FileSent { name, size: n },
+                Err(e) => plugins::PluginEvent::FileSendFailed { name, why: e.to_string() },
+            };
+            inner.emit(ServiceEvent::Plugin { id, plugin: e });
+        });
+        Ok(())
     }
 
     /// `kdeconnect.ping`, with an optional message the other device shows.

@@ -2,8 +2,8 @@
 //! plugin that is off is neither advertised in the identity's capabilities nor answered.
 
 pub mod ping;
+pub mod share;
 
-use kdeconnect_link::{DeviceCert, Link};
 use kdeconnect_proto::Packet;
 use serde::Serialize;
 
@@ -11,20 +11,23 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Enabled {
     pub ping: bool,
+    pub share: bool,
 }
 
 impl Enabled {
     /// Switches one plugin by its name; unknown names are ignored.
     pub fn set(&mut self, name: &str, on: bool) {
-        if name == "ping" {
-            self.ping = on;
+        match name {
+            "ping" => self.ping = on,
+            "share" => self.share = on,
+            _ => {}
         }
     }
 }
 
 impl Default for Enabled {
     fn default() -> Self {
-        Enabled { ping: true }
+        Enabled { ping: true, share: true }
     }
 }
 
@@ -34,6 +37,20 @@ impl Default for Enabled {
 pub enum PluginEvent {
     /// `kdeconnect.ping`: show it (a notification with the message, or "Ping!").
     Ping { message: Option<String> },
+    /// A link to open.
+    ShareUrl { url: String },
+    /// A text to show, with Copy.
+    ShareText { text: String },
+    /// A file started arriving; `size` in bytes when the sender said.
+    FileReceiving { name: String, size: Option<i64> },
+    /// It arrived whole at `path`. `open`: the sender asked to open it.
+    FileReceived { name: String, path: String, size: u64, open: bool },
+    /// It did not arrive; nothing of it is kept.
+    FileFailed { name: String, why: String },
+    /// A file this device sent arrived at the other.
+    FileSent { name: String, size: u64 },
+    /// A file this device sent did not get there.
+    FileSendFailed { name: String, why: String },
 }
 
 /// The packet types this device takes.
@@ -41,6 +58,9 @@ pub fn incoming(on: &Enabled) -> Vec<String> {
     let mut v = Vec::new();
     if on.ping {
         v.extend(ping::INCOMING.iter().map(|s| s.to_string()));
+    }
+    if on.share {
+        v.extend(share::INCOMING.iter().map(|s| s.to_string()));
     }
     v
 }
@@ -51,13 +71,17 @@ pub fn outgoing(on: &Enabled) -> Vec<String> {
     if on.ping {
         v.extend(ping::OUTGOING.iter().map(|s| s.to_string()));
     }
+    if on.share {
+        v.extend(share::OUTGOING.iter().map(|s| s.to_string()));
+    }
     v
 }
 
 /// A packet from a paired device. Unknown types and plugins that are off give nothing.
-pub fn receive(on: &Enabled, np: &Packet, _link: &Link, _cert: &DeviceCert) -> Vec<PluginEvent> {
+pub fn receive(on: &Enabled, np: &Packet, share_ctx: impl FnOnce() -> share::Incoming) -> Vec<PluginEvent> {
     match np.kind.as_str() {
         ping::TYPE if on.ping => vec![ping::receive(np)],
+        share::REQUEST | share::UPDATE if on.share => share::receive(np, share_ctx()),
         _ => Vec::new(),
     }
 }

@@ -38,9 +38,16 @@ pass them through. Packets other than pairing from a device that is not paired a
 | Plugin | Packets | State |
 |---|---|---|
 | ping | `kdeconnect.ping` both ways | built |
-| share | `kdeconnect.share.request`, `.update` | slice 2 |
+| share | `kdeconnect.share.request`, `.update`: text, links and files each way | built |
 | clipboard | `kdeconnect.clipboard`, `.connect` | slice 3 |
 | remote input | `kdeconnect.mousepad.request`, `.keyboardstate`, `.echo` | slice 4 |
+
+**Share.** A received text or link is an event (`share_text`, `share_url`). A received file is fetched at once on
+its own thread (the sender waits only 10 s) into the `receive_dir` the program named at start, as `<name>.part`
+until all of it arrived, then renamed; a file that does not arrive whole is deleted, and without a folder files are
+refused. The name is cleaned as droidtop cleans a received file's (only the last path part, no control characters
+or `: * ? " < > |`, no leading dots, at most 120 bytes, never over another file: "Name (2)"). A file is sent from a
+path, or on Unix from a file descriptor the program hands over (droidtop passes a document's), so nothing is copied.
 
 A plugin that is off is not in the identity's capabilities and its packets are dropped. What a plugin needs
 from the platform is the program's: the service reports what arrived as an event.
@@ -104,8 +111,8 @@ the connection. Exactly `payloadSize` bytes follow; fewer is an error.
 
 `scripts/interop-kcd.sh <kcd binary>` runs the `peer` example against kcd (https://github.com/bethropolis/kcd, an
 independent protocol 8 implementation in Go, MIT), pinned by commit in CI's `interop-kcd` job. Both must link,
-pair with the same verification key, ping each way, and pass a file from kcd to the peer intact. First run
-2026-11-05 against kcd `9cf876b`: all of it passed.
+pair with the same verification key, ping each way, and pass a file each way intact. First run 2026-11-05
+against kcd `9cf876b`: all of it passed.
 
 ## Checking against the official apps
 
