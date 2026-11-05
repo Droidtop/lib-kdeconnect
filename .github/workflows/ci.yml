@@ -69,12 +69,31 @@ jobs:
             cargo build --release --workspace --target "$target"
           done
 
+  # Interop with an independent protocol 8 implementation (kcd, Go, MIT), pinned by commit:
+  # link, pair with the same verification key on both sides, ping both ways, receive a shared file.
+  # The official apps are checked on the rig (README, "Checking against the official apps").
+  interop-kcd:
+    runs-on: ubuntu-24.04
+    env:
+      KCD_COMMIT: 9cf876b74a4e59378b63024dc41998058d6b6580
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Build kcd at its pinned commit
+        # The runner's Go fetches the toolchain kcd's go.mod asks for (GOTOOLCHAIN=auto).
+        run: GOBIN="$RUNNER_TEMP/bin" go install "github.com/bethropolis/kcd/cmd/kcd@$KCD_COMMIT"
+      - name: Interop with kcd
+        run: scripts/interop-kcd.sh "$RUNNER_TEMP/bin/kcd"
+
   # A green main whose version has no tag yet is released: CI tags v<version> on this commit, and that tag
   # is what programs and the other libraries pin (Droidtop/tracker#867 D2). To release, raise the version
   # in the root Cargo.toml (and the CHANGELOG) in the change that needs it.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, android]
+    needs: [test, android, interop-kcd]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

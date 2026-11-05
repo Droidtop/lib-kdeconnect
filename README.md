@@ -100,6 +100,13 @@ pairing; a device discovery does not find is added by its address.
 the TCP client is the TLS client, and both require the other's pinned certificate. The sender waits 10 s for
 the connection. Exactly `payloadSize` bytes follow; fewer is an error.
 
+## Checking against other implementations
+
+`scripts/interop-kcd.sh <kcd binary>` runs the `peer` example against kcd (https://github.com/bethropolis/kcd, an
+independent protocol 8 implementation in Go, MIT), pinned by commit in CI's `interop-kcd` job. Both must link,
+pair with the same verification key, ping each way, and pass a file from kcd to the peer intact. First run
+2026-11-05 against kcd `9cf876b`: all of it passed.
+
 ## Checking against the official apps
 
 `cargo run -p kdeconnect-link --example peer -- --announce <phone IP> --accept --ping hi --receive-dir /tmp/in`
