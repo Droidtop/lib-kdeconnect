@@ -69,6 +69,20 @@ jobs:
             cargo build --release --workspace --target "$target"
           done
 
+  # The oldest Rust every program builds the library with: Pythia's Debian packages use Ubuntu's rustc 1.85
+  # (Pythia .github/workflows/build.yml). Cargo.lock holds dependency releases that build there.
+  msrv:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.85"
+      - name: Test on Rust 1.85
+        run: cargo test --workspace --locked
+
   # Interop with an independent protocol 8 implementation (kcd, Go, MIT), pinned by commit:
   # link, pair with the same verification key on both sides, ping both ways, receive a shared file.
   # The official apps are checked on the rig (README, "Checking against the official apps").
@@ -93,7 +107,7 @@ jobs:
   # in the root Cargo.toml (and the CHANGELOG) in the change that needs it.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, android, interop-kcd]
+    needs: [test, android, interop-kcd, msrv]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/Droidtop/lib-kdeconnect"
-rust-version = "1.89"
+rust-version = "1.85"
 
 [workspace.dependencies]
 kdeconnect-proto = { path = "crates/proto" }
