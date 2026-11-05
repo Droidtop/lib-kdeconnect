@@ -79,6 +79,8 @@ pub enum PluginEvent {
     Notification { key: String, app: String, title: String, text: String, dismissable: bool, silent: bool },
     /// The other device's notification `key` is gone.
     NotificationGone { key: String },
+    /// The person dismissed this device's notification `key` on the other device: dismiss it here.
+    NotificationDismissed { key: String },
     /// A file this device sent did not get there.
     FileSendFailed { name: String, why: String },
 }

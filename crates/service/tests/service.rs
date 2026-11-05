@@ -136,6 +136,40 @@ fn pair_ping_restart_unpair() {
     a.ring(&b_id).unwrap();
     wait(&b, "ring", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Ring, .. }));
 
+    // B's own notifications reach A; A dismisses one there, and B is told; B takes it away.
+    let note = |key: &str, title: &str| kdeconnect_service::plugins::notifications::Outgoing {
+        key: key.into(),
+        app: "Messages".into(),
+        title: title.into(),
+        text: "hi".into(),
+        dismissable: true,
+        silent: false,
+        time: 1,
+    };
+    assert_eq!(b.post_notification(note("n1", "Ana")), 1);
+    wait(
+        &a,
+        "notification",
+        |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Notification { key, title, .. }, .. } if key == "n1" && title == "Ana"),
+    );
+    let a_id_for_b = a.identity().device_id.clone();
+    a.dismiss_notification(&b_id, "n1").unwrap();
+    let e = wait(&b, "dismissed there", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::NotificationDismissed { .. }, .. }));
+    assert_eq!(e, ServiceEvent::Plugin { id: a_id_for_b, plugin: PluginEvent::NotificationDismissed { key: "n1".into() } });
+    b.cancel_notification("n1");
+    wait(
+        &a,
+        "notification gone",
+        |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::NotificationGone { key }, .. } if key == "n1"),
+    );
+    // One that stays: A asks for all when it links again, below.
+    b.post_notification(note("n2", "Ben"));
+    wait(
+        &a,
+        "second notification",
+        |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Notification { key, .. }, .. } if key == "n2"),
+    );
+
     // Restart A: it still knows B as paired, with B's address remembered, and links again.
     drop(a);
     let a = start("Desktop", da.clone(), b.udp_port());
@@ -144,9 +178,19 @@ fn pair_ping_restart_unpair() {
     assert!(known.iter().any(|d| d.id == b_id && d.paired && !d.reachable));
     a.announce().unwrap();
     wait(&a, "reachable again", |e| matches!(e, ServiceEvent::Reachable { device } if device.id == b_id && device.paired));
-    // On linking again, B sends its clipboard with the time it changed, and A (which has none since its restart) takes it.
-    let e = wait(&a, "clipboard on connect", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Clipboard { .. }, .. }));
-    assert_eq!(e, ServiceEvent::Plugin { id: b_id.clone(), plugin: PluginEvent::Clipboard { text: "copied on B".into() } });
+    // On linking again, B sends its clipboard with the time it changed, and A (which has none since its restart) takes
+    // it; and A asks for every notification, and B sends n2, which it still shows. They come in either order.
+    let (mut clip, mut n2) = (None, false);
+    let end = Instant::now() + Duration::from_secs(20);
+    while (clip.is_none() || !n2) && Instant::now() < end {
+        match a.next_event(Duration::from_millis(200)) {
+            Some(ServiceEvent::Plugin { plugin: PluginEvent::Clipboard { text }, id }) if id == b_id => clip = Some(text),
+            Some(ServiceEvent::Plugin { plugin: PluginEvent::Notification { key, .. }, .. }) if key == "n2" => n2 = true,
+            _ => {}
+        }
+    }
+    assert_eq!(clip.as_deref(), Some("copied on B"));
+    assert!(n2, "no notifications on connect");
     a.ping(&b_id, None).unwrap();
     wait(&b, "ping after restart", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Ping { .. }, .. }));
 

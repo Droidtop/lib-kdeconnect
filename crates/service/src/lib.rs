@@ -150,6 +150,8 @@ struct Inner {
     keyboard_ready: std::sync::atomic::AtomicBool,
     /// This device's battery, when the program said (`None`: it has none, or has not said).
     battery: Mutex<Option<plugins::battery::Battery>>,
+    /// This device's notifications as the program posted them, for a paired device that asks for all.
+    posted: Mutex<std::collections::BTreeMap<String, plugins::notifications::Outgoing>>,
     trust: Mutex<TrustStore>,
     devices: Mutex<HashMap<String, DeviceState>>,
     events: Mutex<Sender<ServiceEvent>>,
@@ -433,6 +435,26 @@ impl Inner {
             }
             return;
         }
+        if np.kind == plugins::notifications::REQUEST {
+            if !self.plugins.notifications {
+                return;
+            }
+            match plugins::notifications::request(&np) {
+                Some(plugins::notifications::Request::All) => {
+                    let all: Vec<_> = self.posted.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+                    for n in all {
+                        let _ = self.send(id, n.packet());
+                    }
+                }
+                Some(plugins::notifications::Request::Dismiss(key))
+                    if self.posted.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&key) =>
+                {
+                    self.emit(ServiceEvent::Plugin { id: id.to_owned(), plugin: plugins::PluginEvent::NotificationDismissed { key } });
+                }
+                _ => {}
+            }
+            return;
+        }
         if np.kind == plugins::battery::REQUEST {
             if self.plugins.battery {
                 if let Some(b) = *self.battery.lock().unwrap_or_else(|e| e.into_inner()) {
@@ -475,6 +497,7 @@ impl Service {
             clip: Mutex::new(Default::default()),
             keyboard_ready: std::sync::atomic::AtomicBool::new(false),
             battery: Mutex::new(None),
+            posted: Mutex::new(Default::default()),
             trust: Mutex::new(trust),
             devices: Mutex::new(HashMap::new()),
             events: Mutex::new(tx),
@@ -639,6 +662,28 @@ impl Service {
     /// Rings the paired device `id` (find my device).
     pub fn ring(&self, id: &str) -> Result<(), ServiceError> {
         self.send(id, plugins::findmyphone::packet())
+    }
+
+    /// This device posted or updated notification `n`: sent to every paired, reachable device, and kept for any that
+    /// asks for all. Returns how many it went to.
+    pub fn post_notification(&self, n: plugins::notifications::Outgoing) -> usize {
+        if !self.inner.plugins.notifications {
+            return 0;
+        }
+        let np = n.packet();
+        self.inner.posted.lock().unwrap_or_else(|e| e.into_inner()).insert(n.key.clone(), n);
+        let ids: Vec<String> = self.devices().into_iter().filter(|d| d.paired && d.reachable).map(|d| d.id).collect();
+        ids.iter().filter(|id| self.send(id, np.clone()).is_ok()).count()
+    }
+
+    /// This device's notification `key` is gone: taken away on every paired, reachable device.
+    pub fn cancel_notification(&self, key: &str) {
+        if self.inner.posted.lock().unwrap_or_else(|e| e.into_inner()).remove(key).is_none() {
+            return;
+        }
+        for d in self.devices().into_iter().filter(|d| d.paired && d.reachable) {
+            let _ = self.send(&d.id, plugins::notifications::cancel(key));
+        }
     }
 
     /// Dismisses the other device's notification `key` there.

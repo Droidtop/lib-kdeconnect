@@ -16,7 +16,9 @@
 //! | `keyboard_ready` | `ready` | `{}`: whether this device can take typing now |
 //! | `battery_set` | `charge?` (0-100; none: no battery), `charging?` | `{}` |
 //! | `ring` | `id` | `{}`: the other device rings |
-//! | `notification_dismiss` | `id, key` | `{}` |
+//! | `notification_dismiss` | `id, key` | `{}`: the other device's notification, dismissed there |
+//! | `notification_post` | `key, app, title?, text?, dismissable?, silent?, time?` | `{sent_to}`: this device's notification, posted or updated on paired, reachable devices |
+//! | `notification_cancel` | `key` | `{}`: this device's notification is gone |
 //! | `clipboard_set` | `text` | `{sent_to}`: this device's clipboard changed; sent to paired, reachable devices |
 //! | `share_text` | `id, text` | `{}` |
 //! | `share_url` | `id, url` | `{}` |
@@ -159,6 +161,19 @@ pub fn call_with(op: &str, args: &Value, link: Config) -> Value {
         "notification_dismiss" => {
             let key = args.get("key").and_then(Value::as_str).ok_or("no key")?;
             running()?.dismiss_notification(id(args)?, key).map(|_| json!({})).map_err(words)
+        }
+        "notification_post" => {
+            let n: crate::plugins::notifications::Outgoing =
+                serde_json::from_value(args.clone()).map_err(|e| format!("not a notification: {e}"))?;
+            if n.key.is_empty() {
+                return Err("no key".into());
+            }
+            Ok(json!({ "sent_to": running()?.post_notification(n) }))
+        }
+        "notification_cancel" => {
+            let key = args.get("key").and_then(Value::as_str).ok_or("no key")?;
+            running()?.cancel_notification(key);
+            Ok(json!({}))
         }
         "clipboard_set" => {
             let text = args.get("text").and_then(Value::as_str).ok_or("no text")?;

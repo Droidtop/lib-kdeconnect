@@ -3,6 +3,17 @@
 All notable changes to lib-kdeconnect. Versions follow [Semantic Versioning](https://semver.org/)
 (0.x releases may change anything).
 
+## [0.1.1]
+
+### Added
+- Notifications the other way (Droidtop/tracker#645): this device's own notifications go to paired devices
+  (`Service::post_notification`, `cancel_notification`; ops `notification_post`, `notification_cancel`) in the
+  packet kdeconnect-android sends (`id`, `appName`, `title`, `text`, `ticker`, `isClearable`, `time`, `silent`).
+  The service keeps the ones posted and sends them all when a paired device asks (`request: true`, which the
+  official apps send on connecting); a dismissal there (`cancel`) comes as `PluginEvent::NotificationDismissed`
+  for the program to dismiss it here. `kdeconnect.notification.request` is now taken and `kdeconnect.notification`
+  sent, so the official apps offer this device's notifications.
+
 ## [0.1.0]
 
 ### Added
