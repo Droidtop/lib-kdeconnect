@@ -109,6 +109,14 @@ fn json_operations() {
     assert_eq!(call_with("addresses", &json!({"addresses": ["100.101.102.103", "not an ip"]}), cfg()), json!({}));
     assert!(call_with("pair", &json!({"id": "nobody"}), cfg())["error"].is_string());
     assert!(call_with("nope", &json!({}), cfg())["error"].is_string());
+    // A waiting `event` is woken by `stop`, and `start` straight after takes the ports again.
+    let waiter = std::thread::spawn(move || call_with("event", &json!({"timeout_ms": 30000}), cfg()));
+    std::thread::sleep(Duration::from_millis(200));
+    let t = Instant::now();
+    assert_eq!(call_with("stop", &json!({}), cfg()), json!({}));
+    assert_eq!(waiter.join().unwrap()["event"], "stopped");
+    assert!(t.elapsed() < Duration::from_secs(3));
+    assert!(call_with("start", &json!({"state_dir": d}), cfg())["id"].is_string());
     assert_eq!(call_with("stop", &json!({}), cfg()), json!({}));
     let _ = std::fs::remove_dir_all(&d);
 }

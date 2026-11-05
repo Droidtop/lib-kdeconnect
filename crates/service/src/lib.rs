@@ -98,6 +98,8 @@ pub enum ServiceEvent {
         id: String,
         reason: &'static str,
     },
+    /// The service was closed: no more events come.
+    Stopped,
     /// Anything a plugin turned into an event (README, "Plugins").
     Plugin {
         id: String,
@@ -526,14 +528,25 @@ impl Service {
     }
 }
 
-impl Drop for Service {
-    fn drop(&mut self) {
-        self.inner.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+impl Service {
+    /// Closes every link and wakes a caller waiting in [`Service::next_event`] with [`ServiceEvent::Stopped`].
+    /// The listeners close when the service is dropped.
+    pub fn close(&self) {
+        if self.inner.stop.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
         for d in self.inner.devices.lock().unwrap_or_else(|e| e.into_inner()).values() {
             if let Some((_, tx)) = &d.link {
                 let _ = tx.send(Cmd::Close);
             }
         }
+        self.inner.emit(ServiceEvent::Stopped);
+    }
+}
+
+impl Drop for Service {
+    fn drop(&mut self) {
+        self.close();
         for t in self.threads.drain(..) {
             let _ = t.join();
         }

@@ -4,7 +4,7 @@
 //! | Op | Arguments | Reply |
 //! |---|---|---|
 //! | `start` | `state_dir, name, type?` (`phone`, `tablet`, `desktop`, `laptop`, `tv`), `plugins?` (`{name: bool}`) | `{id, name}` |
-//! | `stop` | | `{}` |
+//! | `stop` | | `{}`: once it returns the ports are free; a waiting `event` returns `{"event": "stopped"}` |
 //! | `identity` | | `{id, name}` |
 //! | `devices` | | `{devices: [DeviceView]}` |
 //! | `event` | `timeout_ms?` (default 1000, at most 60000) | an event, or `{"event": "none"}` |
@@ -84,7 +84,15 @@ pub fn call_with(op: &str, args: &Value, link: Config) -> Value {
     let r: Result<Value, String> = (|| match op {
         "start" => start(args, link),
         "stop" => {
-            RUNNING.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(s) = RUNNING.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                // Wake an `event` call waiting on it, and wait (at most 2 s) for it to let go, so the ports are
+                // free when `stop` returns and a `start` straight after can take them.
+                s.close();
+                let end = std::time::Instant::now() + Duration::from_secs(2);
+                while Arc::strong_count(&s) > 1 && std::time::Instant::now() < end {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
             Ok(json!({}))
         }
         "identity" => {
