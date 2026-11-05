@@ -12,3 +12,5 @@ All notable changes to lib-kdeconnect. Versions follow [Semantic Versioning](htt
 - `kdeconnect-link`: the device certificate, UDP discovery, the TCP+TLS link with the official apps' role
   swap and identity re-exchange, certificate pinning, payload streams and the LAN link provider. The
   `peer` example is a command-line device for checking against the official apps.
+- `kdeconnect-service`: the running device both programs embed. Identity and paired devices on disk,
+  remembered addresses, pairing, the ping plugin, and JSON-serialisable views and events.

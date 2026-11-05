@@ -52,13 +52,13 @@ fn device(name: &str, kind: DeviceType) -> Device {
     id.outgoing_capabilities = vec![types::PING.into()];
     let cert = DeviceCert::generate(&id.device_id).unwrap();
     let pins = Arc::new(Pins::default());
-    let config = Config { bind: LOOPBACK, udp_port: 0, tcp_ports: 0..=0, peer_tcp_ports: 1..=u16::MAX, broadcast: false };
+    let config = Config { bind: LOOPBACK, udp_port: 0, tcp_ports: 0..=0, peer_tcp_ports: 1..=u16::MAX, peer_udp_port: 0, broadcast: false };
     let provider = LinkProvider::start(config, id.clone(), cert.clone(), pins.clone(), Arc::new(Loopback)).unwrap();
     Device { id, cert, pins, provider }
 }
 
 fn next_link(d: &Device) -> Link {
-    match d.provider.events().recv_timeout(Duration::from_secs(20)).expect("an event") {
+    match d.provider.next_event(Duration::from_secs(20)).expect("an event") {
         Event::Linked(l) => *l,
         Event::Failed { addr, error } => panic!("handshake with {addr} failed: {error}"),
     }
@@ -174,7 +174,7 @@ fn a_changed_certificate_is_refused() {
     let other = DeviceCert::generate(&b.id.device_id).unwrap();
     a.pins.pin(&b.id.device_id, other.cert_der);
     a.provider.connect_direct(SocketAddr::new(LOOPBACK, b.provider.tcp_port()), b.id.clone());
-    match a.provider.events().recv_timeout(Duration::from_secs(20)).unwrap() {
+    match a.provider.next_event(Duration::from_secs(20)).unwrap() {
         Event::Failed { .. } => {}
         Event::Linked(_) => panic!("linked to a device whose certificate is not the pinned one"),
     }
@@ -188,7 +188,7 @@ fn a_connection_for_another_device_is_refused() {
     let mut wrong = b.id.clone();
     wrong.device_id = new_device_id();
     a.provider.connect_direct(SocketAddr::new(LOOPBACK, b.provider.tcp_port()), wrong);
-    match b.provider.events().recv_timeout(Duration::from_secs(20)).unwrap() {
+    match b.provider.next_event(Duration::from_secs(20)).unwrap() {
         Event::Failed { .. } => {}
         Event::Linked(_) => panic!("accepted a connection meant for another device"),
     }

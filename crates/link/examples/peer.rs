@@ -69,7 +69,7 @@ fn main() {
     kdeconnect_link::discovery::announce(&me, provider.tcp_port(), &extra, dest, true).expect("announce");
 
     loop {
-        let link = match provider.events().recv_timeout(Duration::from_secs(5)) {
+        let link = match provider.next_event(Duration::from_secs(5)).ok_or(()) {
             Ok(Event::Linked(l)) => *l,
             Ok(Event::Failed { addr, error }) => {
                 println!("handshake with {addr} failed: {error}");

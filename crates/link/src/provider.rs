@@ -30,6 +30,8 @@ pub struct Config {
     pub tcp_ports: RangeInclusive<u16>,
     /// The ports another device's announced `tcpPort` may be in (1716-1764 but in tests).
     pub peer_tcp_ports: RangeInclusive<u16>,
+    /// The port announcements are sent to (1716 but in tests, where each device hears on its own).
+    pub peer_udp_port: u16,
     /// Announce to 255.255.255.255 (off in tests, and on a network the person does not trust).
     pub broadcast: bool,
 }
@@ -41,6 +43,7 @@ impl Default for Config {
             udp_port: UDP_PORT,
             tcp_ports: MIN_TCP_PORT..=MAX_TCP_PORT,
             peer_tcp_ports: MIN_TCP_PORT..=MAX_TCP_PORT,
+            peer_udp_port: UDP_PORT,
             broadcast: true,
         }
     }
@@ -109,7 +112,7 @@ pub struct LinkProvider {
     config: Config,
     tcp_port: u16,
     udp_port: u16,
-    events: Receiver<Event>,
+    events: Mutex<Receiver<Event>>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -185,7 +188,7 @@ impl LinkProvider {
             }
         });
 
-        Ok(LinkProvider { shared, config, tcp_port, udp_port, events, threads: vec![udp_thread, tcp_thread] })
+        Ok(LinkProvider { shared, config, tcp_port, udp_port, events: Mutex::new(events), threads: vec![udp_thread, tcp_thread] })
     }
 
     /// The port of this device's TCP listener.
@@ -202,12 +205,12 @@ impl LinkProvider {
     /// refresh. Goes to the broadcast address and to every address the [`AddressSource`] gives.
     pub fn announce(&self) -> std::io::Result<()> {
         let extra = self.shared.sources.addresses();
-        discovery::announce(&self.shared.me, self.tcp_port, &extra, self.config.udp_port, self.config.broadcast)
+        discovery::announce(&self.shared.me, self.tcp_port, &extra, self.config.peer_udp_port, self.config.broadcast)
     }
 
-    /// Links made and handshakes failed, in the order they happened.
-    pub fn events(&self) -> &Receiver<Event> {
-        &self.events
+    /// The next link made or handshake failed, in the order they happened; `None` when `timeout` passes first.
+    pub fn next_event(&self, timeout: Duration) -> Option<Event> {
+        self.events.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(timeout).ok()
     }
 
     /// Connects to a device listening at `addr` directly, without waiting for it to hear an announcement

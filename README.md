@@ -13,8 +13,37 @@ nothing about Android, Python or any VPN (#867 D3). Each program implements the 
 |---|---|---|
 | `kdeconnect-proto` | [`crates/proto`](crates/proto) | packets, identity, device id and name rules, pairing and the verification key. No I/O. |
 | `kdeconnect-link` | [`crates/link`](crates/link) | the device certificate, UDP discovery, the TCP+TLS link, payload streams, the LAN link provider |
+| `kdeconnect-service` | [`crates/service`](crates/service) | the running device both programs embed: identity and paired devices on disk, one thread per link, pairing, the plugins, and a queue of events |
 
-`kdeconnect-plugins` (share, clipboard, remote input, then the rest) comes in the later slices of #645.
+The plan on #645 named a third crate `kdeconnect-plugins`. The plugins live in `kdeconnect-service` (`src/plugins/`)
+instead, because each one is a few packet rules that need the service's links and nothing else.
+
+## The service
+
+`Service::start(Settings)` takes the name, the device type, a folder for its state, the link settings and
+which plugins are on. In that folder it keeps two JSON files:
+- `kdeconnect-identity.json`: the device id, certificate and key, made on first start. A certificate that no
+  longer names the device id is replaced, and every pairing is forgotten with it, as android does.
+- `kdeconnect-trusted.json`: the paired devices, each with its pinned certificate and the last address it was
+  reached at. Those addresses are announced to at start, so paired devices reconnect off the broadcast.
+
+The program calls `devices`, `pair`, `accept`, `refuse`, `unpair`, `ping`, `send`, `announce`, and
+`set_extra_addresses` (devices added by address and a VPN plugin's peers). It reads `next_event`. Every
+view and event serialises to JSON (`{"event": "pair_request", "id", "name", "key"}`, `{"event": "plugin",
+"id", "plugin": {"plugin": "ping", "message"}}`, ...), so droidtop's JNI layer and Pythia's Python layer
+pass them through. Packets other than pairing from a device that is not paired are dropped, as both apps do.
+
+## Plugins
+
+| Plugin | Packets | State |
+|---|---|---|
+| ping | `kdeconnect.ping` both ways | built |
+| share | `kdeconnect.share.request`, `.update` | slice 2 |
+| clipboard | `kdeconnect.clipboard`, `.connect` | slice 3 |
+| remote input | `kdeconnect.mousepad.request`, `.keyboardstate`, `.echo` | slice 4 |
+
+A plugin that is off is not in the identity's capabilities and its packets are dropped. What a plugin needs
+from the platform is the program's: the service reports what arrived as an event.
 
 Used by: droidtop-agent, and through it droidtop's `libdroidtop_agent.so` and Pythia (from slice 1's wiring).
 
