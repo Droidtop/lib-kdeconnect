@@ -52,7 +52,15 @@ fn device(name: &str, kind: DeviceType) -> Device {
     id.outgoing_capabilities = vec![types::PING.into()];
     let cert = DeviceCert::generate(&id.device_id).unwrap();
     let pins = Arc::new(Pins::default());
-    let config = Config { bind: LOOPBACK, udp_port: 0, tcp_ports: 0..=0, peer_tcp_ports: 1..=u16::MAX, peer_udp_port: 0, broadcast: false };
+    let config = Config {
+        bind: LOOPBACK,
+        udp_port: 0,
+        tcp_ports: 0..=0,
+        peer_tcp_ports: 1..=u16::MAX,
+        peer_udp_port: 0,
+        mdns: false,
+        broadcast: false,
+    };
     let provider = LinkProvider::start(config, id.clone(), cert.clone(), pins.clone(), Arc::new(Loopback)).unwrap();
     Device { id, cert, pins, provider }
 }

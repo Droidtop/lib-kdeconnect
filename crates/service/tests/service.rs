@@ -19,7 +19,15 @@ fn dir(name: &str) -> PathBuf {
 }
 
 fn start(name: &str, state: PathBuf, peer_udp_port: u16) -> Service {
-    let link = Config { bind: LOOPBACK, udp_port: 0, tcp_ports: 0..=0, peer_tcp_ports: 1..=u16::MAX, peer_udp_port, broadcast: false };
+    let link = Config {
+        bind: LOOPBACK,
+        udp_port: 0,
+        tcp_ports: 0..=0,
+        peer_tcp_ports: 1..=u16::MAX,
+        peer_udp_port,
+        mdns: false,
+        broadcast: false,
+    };
     let s = Service::start(Settings {
         name: name.into(),
         device_type: DeviceType::Desktop,
@@ -155,7 +163,15 @@ fn json_operations() {
     use kdeconnect_service::ops::call_with;
     use serde_json::json;
     let d = dir("ops");
-    let cfg = || Config { bind: LOOPBACK, udp_port: 0, tcp_ports: 0..=0, peer_tcp_ports: 1..=u16::MAX, peer_udp_port: 0, broadcast: false };
+    let cfg = || Config {
+        bind: LOOPBACK,
+        udp_port: 0,
+        tcp_ports: 0..=0,
+        peer_tcp_ports: 1..=u16::MAX,
+        peer_udp_port: 0,
+        mdns: false,
+        broadcast: false,
+    };
     assert!(call_with("devices", &json!({}), cfg())["error"].is_string());
     let started = call_with("start", &json!({"state_dir": d, "name": "Pocket: 5", "type": "phone"}), cfg());
     assert_eq!(started["name"], "Pocket 5");

@@ -21,5 +21,7 @@ All notable changes to lib-kdeconnect. Versions follow [Semantic Versioning](htt
 - Remote input: pointer moves, scrolls, clicks, typed text and kde's 32 special keys with modifiers
   (`kdeconnect.mousepad.request`), the echo a sender asks for, and the keyboard state, both as the
   controlled device and as the controller.
+- mDNS discovery (`_kdeconnect._udp`) beside the UDP broadcast, as both official apps do, with the `mdns-sd`
+  crate.
 - Battery each way, find my device (ring) each way, and another device's notifications received, with
   dismissing them there.

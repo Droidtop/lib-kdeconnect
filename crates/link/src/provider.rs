@@ -32,6 +32,8 @@ pub struct Config {
     pub peer_tcp_ports: RangeInclusive<u16>,
     /// The port announcements are sent to (1716 but in tests, where each device hears on its own).
     pub peer_udp_port: u16,
+    /// Publish and browse by mDNS too (off in tests, which must not see the machine's other devices).
+    pub mdns: bool,
     /// Announce to 255.255.255.255 (off in tests, and on a network the person does not trust).
     pub broadcast: bool,
 }
@@ -44,6 +46,7 @@ impl Default for Config {
             tcp_ports: MIN_TCP_PORT..=MAX_TCP_PORT,
             peer_tcp_ports: MIN_TCP_PORT..=MAX_TCP_PORT,
             peer_udp_port: UDP_PORT,
+            mdns: true,
             broadcast: true,
         }
     }
@@ -114,6 +117,7 @@ pub struct LinkProvider {
     udp_port: u16,
     events: Mutex<Receiver<Event>>,
     threads: Vec<JoinHandle<()>>,
+    _mdns: Option<crate::mdns::Mdns>,
 }
 
 impl LinkProvider {
@@ -188,7 +192,31 @@ impl LinkProvider {
             }
         });
 
-        Ok(LinkProvider { shared, config, tcp_port, udp_port, events: Mutex::new(events), threads: vec![udp_thread, tcp_thread] })
+        // mDNS beside the broadcast; a network or system where it cannot start still has the broadcast.
+        let mdns = if config.mdns {
+            let s = Arc::clone(&shared);
+            crate::mdns::Mdns::start(&shared.me, tcp_port, move |heard| {
+                if s.stop.load(Ordering::SeqCst)
+                    || !s.allowed(heard.addr.ip())
+                    || Shared::limited(&s.by_device, heard.identity.device_id.clone())
+                {
+                    return;
+                }
+                s.handshake(heard.addr, move |s| Link::connect(heard.addr, &s.me, &s.cert, &heard.identity, s.trust.as_ref()));
+            })
+            .ok()
+        } else {
+            None
+        };
+        Ok(LinkProvider {
+            shared,
+            config,
+            tcp_port,
+            udp_port,
+            events: Mutex::new(events),
+            threads: vec![udp_thread, tcp_thread],
+            _mdns: mdns,
+        })
     }
 
     /// The port of this device's TCP listener.

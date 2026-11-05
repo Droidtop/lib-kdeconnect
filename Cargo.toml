@@ -26,6 +26,9 @@ rcgen = { version = "0.13", default-features = false, features = ["ring", "crypt
 # Reads a peer certificate's CN and SubjectPublicKeyInfo.
 x509-parser = "0.16"
 uuid = { version = "1", features = ["v4"] }
+# mDNS (_kdeconnect._udp), as both official apps also discover: a vetted crate, not our own (owner, 2026-11-05:
+# "No need to reinvent wheels").
+mdns-sd = { version = "0.21", default-features = false }
 time = "0.3"
 
 [profile.release]

@@ -9,6 +9,7 @@
 pub mod cert;
 pub mod discovery;
 pub mod link;
+pub mod mdns;
 pub mod payload;
 pub mod provider;
 pub mod tls;

@@ -74,7 +74,9 @@ sends `targetProtocolVersion` as a string; kde 23.08 sent `id` as one). An ident
 `"',;:.!?()[]<>` dropped, at most 32 characters, not empty), `deviceType` (`desktop`, `laptop`, `phone`,
 `tablet`, `tv`), `protocolVersion`, `incomingCapabilities`, `outgoingCapabilities`.
 
-**Discovery.** The full identity plus `tcpPort` (the device's listener, from 1716-1764) goes by UDP to
+**Discovery.** By mDNS (`_kdeconnect._udp`, published as the device id on its TCP port with TXT `id`, `name`,
+`type`, `protocol`, through the `mdns-sd` crate; on Android the program holds a Wi-Fi multicast lock), and by UDP.
+The full identity plus `tcpPort` (the device's listener, from 1716-1764) goes by UDP to
 255.255.255.255:1716 and to each extra address (devices added by address, and a VPN plugin's peers, through
 the `AddressSource` trait). kde sends a smaller UDP packet; the full one is a superset that both apps accept.
 An announcement is ignored when it is this device's own, older than version 8, or names a port outside
