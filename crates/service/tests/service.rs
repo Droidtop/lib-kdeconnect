@@ -92,3 +92,23 @@ fn pair_ping_restart_unpair() {
     let _ = std::fs::remove_dir_all(&da);
     let _ = std::fs::remove_dir_all(&db);
 }
+
+/// The JSON operations the JNI and Python layers pass through.
+#[test]
+fn json_operations() {
+    use kdeconnect_service::ops::call_with;
+    use serde_json::json;
+    let d = dir("ops");
+    let cfg = || Config { bind: LOOPBACK, udp_port: 0, tcp_ports: 0..=0, peer_tcp_ports: 1..=u16::MAX, peer_udp_port: 0, broadcast: false };
+    assert!(call_with("devices", &json!({}), cfg())["error"].is_string());
+    let started = call_with("start", &json!({"state_dir": d, "name": "Pocket: 5", "type": "phone"}), cfg());
+    assert_eq!(started["name"], "Pocket 5");
+    assert_eq!(call_with("start", &json!({"state_dir": d}), cfg())["id"], started["id"]);
+    assert_eq!(call_with("devices", &json!({}), cfg())["devices"], json!([]));
+    assert_eq!(call_with("event", &json!({"timeout_ms": 10}), cfg())["event"], "none");
+    assert_eq!(call_with("addresses", &json!({"addresses": ["100.101.102.103", "not an ip"]}), cfg()), json!({}));
+    assert!(call_with("pair", &json!({"id": "nobody"}), cfg())["error"].is_string());
+    assert!(call_with("nope", &json!({}), cfg())["error"].is_string());
+    assert_eq!(call_with("stop", &json!({}), cfg()), json!({}));
+    let _ = std::fs::remove_dir_all(&d);
+}

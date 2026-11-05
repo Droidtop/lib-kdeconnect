@@ -7,6 +7,7 @@
 //! What a plugin needs from the platform (typing into a field, the clipboard, where a file goes) is the
 //! program's: the service reports what arrived as an event and the program acts on it.
 
+pub mod ops;
 pub mod plugins;
 pub mod store;
 

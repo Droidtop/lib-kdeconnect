@@ -13,6 +13,15 @@ pub struct Enabled {
     pub ping: bool,
 }
 
+impl Enabled {
+    /// Switches one plugin by its name; unknown names are ignored.
+    pub fn set(&mut self, name: &str, on: bool) {
+        if name == "ping" {
+            self.ping = on;
+        }
+    }
+}
+
 impl Default for Enabled {
     fn default() -> Self {
         Enabled { ping: true }
