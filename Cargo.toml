@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["crates/proto", "crates/link"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/Droidtop/lib-kdeconnect"
+rust-version = "1.89"
+
+[workspace.dependencies]
+kdeconnect-proto = { path = "crates/proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+sha2 = "0.10"
+# TLS 1.2 is required: kdeconnect-android pins its context to TLSv1.2
+# (SslHelper.createSslContext). ring builds for every target the programs use,
+# Android included, as it does in lib-sync and droidtop-agent.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The device certificate: self-signed, CN = device id, no SAN (README, "Certificates").
+rcgen = { version = "0.13", default-features = false, features = ["ring", "crypto"] }
+# Reads a peer certificate's CN and SubjectPublicKeyInfo.
+x509-parser = "0.16"
+uuid = { version = "1", features = ["v4"] }
+time = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
