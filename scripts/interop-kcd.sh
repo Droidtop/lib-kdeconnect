@@ -15,9 +15,10 @@ IP=""
 if command -v ip >/dev/null; then IP=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1); fi
 [ -n "$IP" ] || IP=$(hostname -I | awk '{print $1}')
 echo "address: $IP"
+# Built before HOME moves: rustup finds its toolchains under the real HOME.
+cargo build -q -p kdeconnect-link --example peer --manifest-path "$ROOT/Cargo.toml"
 export HOME=$W/home XDG_RUNTIME_DIR=$RUN XDG_CONFIG_HOME=$W/home/.config XDG_DATA_HOME=$W/home/.local/share
 mkdir -p "$HOME" "$W/recv"
-cargo build -q -p kdeconnect-link --example peer --manifest-path "$ROOT/Cargo.toml"
 "$KCD" --log-level debug daemon > "$W/kcd.log" 2>&1 & KD=$!
 sleep 3
 (timeout 60 "$KCD" pair --yes > "$W/pair.log" 2>&1 &)
