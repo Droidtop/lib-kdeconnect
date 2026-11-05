@@ -16,3 +16,5 @@ All notable changes to lib-kdeconnect. Versions follow [Semantic Versioning](htt
   remembered addresses, pairing, the ping plugin, and JSON-serialisable views and events.
 - Share: texts, links and files each way (`kdeconnect.share.request`), files stored whole into the program's
   folder under a cleaned, unique name, and sent from a path or a handed-over file descriptor.
+- Clipboard: text each way (`kdeconnect.clipboard`), and on connecting with the time it changed
+  (`.connect`, taken only when newer); a clip that just arrived is not sent back.

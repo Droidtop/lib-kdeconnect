@@ -12,6 +12,7 @@
 //! | `addresses` | `addresses: [ip]` | `{}`: the extra addresses (added by hand, a VPN plugin's peers) |
 //! | `pair`, `accept`, `refuse`, `unpair` | `id` | `{}` |
 //! | `ping` | `id, message?` | `{}` |
+//! | `clipboard_set` | `text` | `{sent_to}`: this device's clipboard changed; sent to paired, reachable devices |
 //! | `share_text` | `id, text` | `{}` |
 //! | `share_url` | `id, url` | `{}` |
 //! | `share_file` | `id, path` or `fd` (Unix: handed over), `name?`, `size?`, `open?` | `{}`; the outcome comes as an event |
@@ -133,6 +134,10 @@ pub fn call_with(op: &str, args: &Value, link: Config) -> Value {
         "ping" => {
             let message = args.get("message").and_then(Value::as_str);
             running()?.ping(id(args)?, message).map(|_| json!({})).map_err(words)
+        }
+        "clipboard_set" => {
+            let text = args.get("text").and_then(Value::as_str).ok_or("no text")?;
+            Ok(json!({ "sent_to": running()?.clipboard_set(text) }))
         }
         "share_text" => {
             let text = args.get("text").and_then(Value::as_str).ok_or("no text")?;

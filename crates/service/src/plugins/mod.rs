@@ -1,6 +1,7 @@
 //! The plugins: what each one sends and what an arriving packet becomes. Each can be switched off; a
 //! plugin that is off is neither advertised in the identity's capabilities nor answered.
 
+pub mod clipboard;
 pub mod ping;
 pub mod share;
 
@@ -12,6 +13,7 @@ use serde::Serialize;
 pub struct Enabled {
     pub ping: bool,
     pub share: bool,
+    pub clipboard: bool,
 }
 
 impl Enabled {
@@ -20,6 +22,7 @@ impl Enabled {
         match name {
             "ping" => self.ping = on,
             "share" => self.share = on,
+            "clipboard" => self.clipboard = on,
             _ => {}
         }
     }
@@ -27,7 +30,7 @@ impl Enabled {
 
 impl Default for Enabled {
     fn default() -> Self {
-        Enabled { ping: true, share: true }
+        Enabled { ping: true, share: true, clipboard: true }
     }
 }
 
@@ -49,6 +52,8 @@ pub enum PluginEvent {
     FileFailed { name: String, why: String },
     /// A file this device sent arrived at the other.
     FileSent { name: String, size: u64 },
+    /// The other device's clipboard: put it on this one's.
+    Clipboard { text: String },
     /// A file this device sent did not get there.
     FileSendFailed { name: String, why: String },
 }
@@ -62,6 +67,9 @@ pub fn incoming(on: &Enabled) -> Vec<String> {
     if on.share {
         v.extend(share::INCOMING.iter().map(|s| s.to_string()));
     }
+    if on.clipboard {
+        v.extend(clipboard::INCOMING.iter().map(|s| s.to_string()));
+    }
     v
 }
 
@@ -73,6 +81,9 @@ pub fn outgoing(on: &Enabled) -> Vec<String> {
     }
     if on.share {
         v.extend(share::OUTGOING.iter().map(|s| s.to_string()));
+    }
+    if on.clipboard {
+        v.extend(clipboard::OUTGOING.iter().map(|s| s.to_string()));
     }
     v
 }

@@ -101,6 +101,13 @@ fn pair_ping_restart_unpair() {
     assert_eq!(std::fs::read(&path).unwrap(), data);
     wait(&a, "sent", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::FileSent { size: 300_000, .. }, .. }));
 
+    // Clipboard: B's change reaches A; A writing it back to its own clipboard does not send it again.
+    assert_eq!(b.clipboard_set("copied on B"), 1);
+    let e = wait(&a, "clipboard", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Clipboard { .. }, .. }));
+    assert_eq!(e, ServiceEvent::Plugin { id: b_id.clone(), plugin: PluginEvent::Clipboard { text: "copied on B".into() } });
+    assert_eq!(a.clipboard_set("copied on B"), 0);
+    assert_eq!(b.clipboard_set("copied on B"), 0);
+
     // Restart A: it still knows B as paired, with B's address remembered, and links again.
     drop(a);
     let a = start("Desktop", da.clone(), b.udp_port());
@@ -109,8 +116,11 @@ fn pair_ping_restart_unpair() {
     assert!(known.iter().any(|d| d.id == b_id && d.paired && !d.reachable));
     a.announce().unwrap();
     wait(&a, "reachable again", |e| matches!(e, ServiceEvent::Reachable { device } if device.id == b_id && device.paired));
+    // On linking again, B sends its clipboard with the time it changed, and A (which has none since its restart) takes it.
+    let e = wait(&a, "clipboard on connect", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Clipboard { .. }, .. }));
+    assert_eq!(e, ServiceEvent::Plugin { id: b_id.clone(), plugin: PluginEvent::Clipboard { text: "copied on B".into() } });
     a.ping(&b_id, None).unwrap();
-    wait(&b, "ping after restart", |e| matches!(e, ServiceEvent::Plugin { .. }));
+    wait(&b, "ping after restart", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Ping { .. }, .. }));
 
     a.unpair(&b_id).unwrap();
     wait(&b, "unpaired", |e| matches!(e, ServiceEvent::Unpaired { .. }));

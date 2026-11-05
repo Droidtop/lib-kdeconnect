@@ -145,6 +145,7 @@ struct Inner {
     cert: DeviceCert,
     plugins: plugins::Enabled,
     receive_dir: Option<PathBuf>,
+    clip: Mutex<plugins::clipboard::Clip>,
     trust: Mutex<TrustStore>,
     devices: Mutex<HashMap<String, DeviceState>>,
     events: Mutex<Sender<ServiceEvent>>,
@@ -158,6 +159,10 @@ impl Trust for Pins {
     fn pinned(&self, id: &str) -> Option<Vec<u8>> {
         self.0.trust.lock().unwrap_or_else(|e| e.into_inner()).devices.get(id).and_then(|t| t.cert_der())
     }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 fn now() -> i64 {
@@ -224,6 +229,15 @@ impl Inner {
         }
     }
 
+    /// The clipboard as it is now, to a device that has just been paired (android sends it when the plugin starts).
+    fn send_clip_connect(&self, id: &str) {
+        if self.plugins.clipboard {
+            if let Some(np) = self.clip.lock().unwrap_or_else(|e| e.into_inner()).connect_packet() {
+                let _ = self.send(id, np);
+            }
+        }
+    }
+
     fn forget(&self, id: &str) {
         let _ = self.trust.lock().unwrap_or_else(|e| e.into_inner()).forget(id);
     }
@@ -240,6 +254,7 @@ impl Inner {
             }
             PairEvent::Paired => {
                 self.pin(id);
+                self.send_clip_connect(id);
                 self.emit(ServiceEvent::Paired { id: id.to_owned() });
             }
             PairEvent::Unpaired => {
@@ -261,6 +276,7 @@ impl Inner {
     fn adopt(self: &Arc<Self>, link: Link) {
         let id = link.peer.device_id.clone();
         let (tx, rx) = channel();
+        let tx_for_connect = tx.clone();
         let gen = {
             let mut g = self.next_gen.lock().unwrap_or_else(|e| e.into_inner());
             *g += 1;
@@ -282,7 +298,7 @@ impl Inner {
             d.identity = link.peer.clone();
             d.addr = Some(link.peer_addr);
             d.peer_cert = Some(link.peer_cert.clone());
-            d.link = Some((gen, tx));
+            d.link = Some((gen, tx.clone()));
             if paired && d.pairing.state == PairState::NotPaired {
                 d.pairing = Pairing::new(true);
             }
@@ -291,6 +307,11 @@ impl Inner {
         if paired {
             // Keep the address it was last reached at, for the next start.
             self.pin(&id);
+            if self.plugins.clipboard {
+                if let Some(np) = self.clip.lock().unwrap_or_else(|e| e.into_inner()).connect_packet() {
+                    let _ = tx_for_connect.send(Cmd::Send(np));
+                }
+            }
         }
         self.emit(ServiceEvent::Reachable { device: view });
         let me = Arc::clone(self);
@@ -368,6 +389,13 @@ impl Inner {
         if !paired {
             return;
         }
+        if self.plugins.clipboard && (np.kind == plugins::clipboard::TYPE || np.kind == plugins::clipboard::CONNECT) {
+            let e = self.clip.lock().unwrap_or_else(|e| e.into_inner()).receive(&np, now_ms());
+            if let Some(e) = e {
+                self.emit(ServiceEvent::Plugin { id: id.to_owned(), plugin: e });
+            }
+            return;
+        }
         let me = Arc::clone(self);
         let device = id.to_owned();
         let ctx = || plugins::share::Incoming {
@@ -399,6 +427,7 @@ impl Service {
             cert: cert.clone(),
             plugins: settings.plugins,
             receive_dir: settings.receive_dir,
+            clip: Mutex::new(Default::default()),
             trust: Mutex::new(trust),
             devices: Mutex::new(HashMap::new()),
             events: Mutex::new(tx),
@@ -492,6 +521,7 @@ impl Service {
         }
         if accepted_theirs {
             self.inner.pin(id);
+            self.inner.send_clip_connect(id);
             self.inner.emit(ServiceEvent::Paired { id: id.to_owned() });
         }
         Ok(())
@@ -503,6 +533,7 @@ impl Service {
         if let Some(np) = np {
             self.inner.send(id, np)?;
             self.inner.pin(id);
+            self.inner.send_clip_connect(id);
             self.inner.emit(ServiceEvent::Paired { id: id.to_owned() });
         }
         Ok(())
@@ -533,6 +564,16 @@ impl Service {
             return Err(ServiceError::NotPaired);
         }
         self.inner.send(id, np)
+    }
+
+    /// This device's clipboard changed to `text`: sent to every paired, reachable device, unless it is the text
+    /// already held (the one that just arrived from one of them).
+    pub fn clipboard_set(&self, text: &str) -> usize {
+        if !self.inner.plugins.clipboard || !self.inner.clip.lock().unwrap_or_else(|e| e.into_inner()).set(text, now_ms()) {
+            return 0;
+        }
+        let ids: Vec<String> = self.devices().into_iter().filter(|d| d.paired && d.reachable).map(|d| d.id).collect();
+        ids.iter().filter(|id| self.send(id, plugins::clipboard::packet(text)).is_ok()).count()
     }
 
     /// Shares a text (`kdeconnect.share.request` with `text`).
