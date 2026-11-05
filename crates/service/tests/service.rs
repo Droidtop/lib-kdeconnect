@@ -120,6 +120,14 @@ fn pair_ping_restart_unpair() {
     b.set_keyboard_ready(true);
     wait(&a, "keyboard state", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::KeyboardState { state: true }, .. }));
 
+    // Battery, ring and notifications.
+    b.set_battery(Some(kdeconnect_service::plugins::battery::Battery { charge: 12, charging: false }));
+    wait(&a, "battery", |e| {
+        matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Battery { charge: 12, charging: false, low: true }, .. })
+    });
+    a.ring(&b_id).unwrap();
+    wait(&b, "ring", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Ring, .. }));
+
     // Restart A: it still knows B as paired, with B's address remembered, and links again.
     drop(a);
     let a = start("Desktop", da.clone(), b.udp_port());

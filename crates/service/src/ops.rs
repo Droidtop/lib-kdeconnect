@@ -14,6 +14,9 @@
 //! | `ping` | `id, message?` | `{}` |
 //! | `input_send` | `id, input: {dx?, dy?, x?, y?, scroll?, click?, key?, special_key?, shift?, ctrl?, alt?, super?}` | `{}` |
 //! | `keyboard_ready` | `ready` | `{}`: whether this device can take typing now |
+//! | `battery_set` | `charge?` (0-100; none: no battery), `charging?` | `{}` |
+//! | `ring` | `id` | `{}`: the other device rings |
+//! | `notification_dismiss` | `id, key` | `{}` |
 //! | `clipboard_set` | `text` | `{sent_to}`: this device's clipboard changed; sent to paired, reachable devices |
 //! | `share_text` | `id, text` | `{}` |
 //! | `share_url` | `id, url` | `{}` |
@@ -145,6 +148,17 @@ pub fn call_with(op: &str, args: &Value, link: Config) -> Value {
         "keyboard_ready" => {
             running()?.set_keyboard_ready(args.get("ready").and_then(Value::as_bool).unwrap_or(false));
             Ok(json!({}))
+        }
+        "battery_set" => {
+            let charge = args.get("charge").and_then(Value::as_i64);
+            let charging = args.get("charging").and_then(Value::as_bool).unwrap_or(false);
+            running()?.set_battery(charge.map(|charge| crate::plugins::battery::Battery { charge, charging }));
+            Ok(json!({}))
+        }
+        "ring" => running()?.ring(id(args)?).map(|_| json!({})).map_err(words),
+        "notification_dismiss" => {
+            let key = args.get("key").and_then(Value::as_str).ok_or("no key")?;
+            running()?.dismiss_notification(id(args)?, key).map(|_| json!({})).map_err(words)
         }
         "clipboard_set" => {
             let text = args.get("text").and_then(Value::as_str).ok_or("no text")?;

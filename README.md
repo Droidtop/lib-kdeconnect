@@ -41,6 +41,9 @@ pass them through. Packets other than pairing from a device that is not paired a
 | share | `kdeconnect.share.request`, `.update`: text, links and files each way | built |
 | clipboard | `kdeconnect.clipboard`, `.connect`: each way, and on connecting | built |
 | remote input | `kdeconnect.mousepad.request`, `.keyboardstate`, `.echo`: pointer and keyboard, controlled and controlling | built |
+| battery | `kdeconnect.battery`, `.request`: this device's on connecting and on change; the other's as an event | built |
+| find my device | `kdeconnect.findmyphone.request`: ring each way | built |
+| notifications | `kdeconnect.notification` received (post, update, cancel); `.request` to dismiss and to ask for all | built |
 
 **Share.** A received text or link is an event (`share_text`, `share_url`). A received file is fetched at once on
 its own thread (the sender waits only 10 s) into the `receive_dir` the program named at start, as `<name>.part`

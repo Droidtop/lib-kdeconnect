@@ -148,6 +148,8 @@ struct Inner {
     clip: Mutex<plugins::clipboard::Clip>,
     /// Whether this device can take typing now (droidtop: its input method is the active one).
     keyboard_ready: std::sync::atomic::AtomicBool,
+    /// This device's battery, when the program said (`None`: it has none, or has not said).
+    battery: Mutex<Option<plugins::battery::Battery>>,
     trust: Mutex<TrustStore>,
     devices: Mutex<HashMap<String, DeviceState>>,
     events: Mutex<Sender<ServiceEvent>>,
@@ -233,6 +235,14 @@ impl Inner {
 
     /// The clipboard as it is now, to a device that has just been paired (android sends it when the plugin starts).
     fn send_clip_connect(&self, id: &str) {
+        if self.plugins.battery {
+            if let Some(b) = *self.battery.lock().unwrap_or_else(|e| e.into_inner()) {
+                let _ = self.send(id, b.packet());
+            }
+        }
+        if self.plugins.notifications {
+            let _ = self.send(id, plugins::notifications::request_all());
+        }
         if self.plugins.input {
             let _ = self.send(id, plugins::input::keyboard_state(self.keyboard_ready.load(std::sync::atomic::Ordering::SeqCst)));
         }
@@ -312,6 +322,14 @@ impl Inner {
         if paired {
             // Keep the address it was last reached at, for the next start.
             self.pin(&id);
+            if self.plugins.battery {
+                if let Some(b) = *self.battery.lock().unwrap_or_else(|e| e.into_inner()) {
+                    let _ = tx_for_connect.send(Cmd::Send(b.packet()));
+                }
+            }
+            if self.plugins.notifications {
+                let _ = tx_for_connect.send(Cmd::Send(plugins::notifications::request_all()));
+            }
             if self.plugins.input {
                 let ready = self.keyboard_ready.load(std::sync::atomic::Ordering::SeqCst);
                 let _ = tx_for_connect.send(Cmd::Send(plugins::input::keyboard_state(ready)));
@@ -415,6 +433,14 @@ impl Inner {
             }
             return;
         }
+        if np.kind == plugins::battery::REQUEST {
+            if self.plugins.battery {
+                if let Some(b) = *self.battery.lock().unwrap_or_else(|e| e.into_inner()) {
+                    let _ = self.send(id, b.packet());
+                }
+            }
+            return;
+        }
         let me = Arc::clone(self);
         let device = id.to_owned();
         let ctx = || plugins::share::Incoming {
@@ -448,6 +474,7 @@ impl Service {
             receive_dir: settings.receive_dir,
             clip: Mutex::new(Default::default()),
             keyboard_ready: std::sync::atomic::AtomicBool::new(false),
+            battery: Mutex::new(None),
             trust: Mutex::new(trust),
             devices: Mutex::new(HashMap::new()),
             events: Mutex::new(tx),
@@ -594,6 +621,29 @@ impl Service {
         }
         let ids: Vec<String> = self.devices().into_iter().filter(|d| d.paired && d.reachable).map(|d| d.id).collect();
         ids.iter().filter(|id| self.send(id, plugins::clipboard::packet(text)).is_ok()).count()
+    }
+
+    /// This device's battery changed (or `None`: it has none): sent to every paired, reachable device.
+    pub fn set_battery(&self, battery: Option<plugins::battery::Battery>) {
+        let old = std::mem::replace(&mut *self.inner.battery.lock().unwrap_or_else(|e| e.into_inner()), battery);
+        if !self.inner.plugins.battery || old == battery {
+            return;
+        }
+        if let Some(b) = battery {
+            for d in self.devices().into_iter().filter(|d| d.paired && d.reachable) {
+                let _ = self.send(&d.id, b.packet());
+            }
+        }
+    }
+
+    /// Rings the paired device `id` (find my device).
+    pub fn ring(&self, id: &str) -> Result<(), ServiceError> {
+        self.send(id, plugins::findmyphone::packet())
+    }
+
+    /// Dismisses the other device's notification `key` there.
+    pub fn dismiss_notification(&self, id: &str, key: &str) -> Result<(), ServiceError> {
+        self.send(id, plugins::notifications::dismiss(key))
     }
 
     /// Moves the pointer of, or types into, the paired device `id`.

@@ -1,8 +1,11 @@
 //! The plugins: what each one sends and what an arriving packet becomes. Each can be switched off; a
 //! plugin that is off is neither advertised in the identity's capabilities nor answered.
 
+pub mod battery;
 pub mod clipboard;
+pub mod findmyphone;
 pub mod input;
+pub mod notifications;
 pub mod ping;
 pub mod share;
 
@@ -17,6 +20,9 @@ pub struct Enabled {
     pub clipboard: bool,
     /// Paired devices may move this device's pointer and type into it.
     pub input: bool,
+    pub battery: bool,
+    pub findmyphone: bool,
+    pub notifications: bool,
 }
 
 impl Enabled {
@@ -27,6 +33,9 @@ impl Enabled {
             "share" => self.share = on,
             "clipboard" => self.clipboard = on,
             "input" => self.input = on,
+            "battery" => self.battery = on,
+            "findmyphone" => self.findmyphone = on,
+            "notifications" => self.notifications = on,
             _ => {}
         }
     }
@@ -34,7 +43,7 @@ impl Enabled {
 
 impl Default for Enabled {
     fn default() -> Self {
-        Enabled { ping: true, share: true, clipboard: true, input: true }
+        Enabled { ping: true, share: true, clipboard: true, input: true, battery: true, findmyphone: true, notifications: true }
     }
 }
 
@@ -62,6 +71,14 @@ pub enum PluginEvent {
     Input { input: input::InputEvent },
     /// The device this one controls can take typing now, or not.
     KeyboardState { state: bool },
+    /// The other device's battery.
+    Battery { charge: i64, charging: bool, low: bool },
+    /// Ring: play a loud sound until the person stops it.
+    Ring,
+    /// Show (or update) the other device's notification `key`.
+    Notification { key: String, app: String, title: String, text: String, dismissable: bool, silent: bool },
+    /// The other device's notification `key` is gone.
+    NotificationGone { key: String },
     /// A file this device sent did not get there.
     FileSendFailed { name: String, why: String },
 }
@@ -77,6 +94,15 @@ pub fn incoming(on: &Enabled) -> Vec<String> {
     }
     if on.clipboard {
         v.extend(clipboard::INCOMING.iter().map(|s| s.to_string()));
+    }
+    if on.battery {
+        v.extend(battery::INCOMING.iter().map(|s| s.to_string()));
+    }
+    if on.findmyphone {
+        v.extend(findmyphone::INCOMING.iter().map(|s| s.to_string()));
+    }
+    if on.notifications {
+        v.extend(notifications::INCOMING.iter().map(|s| s.to_string()));
     }
     if on.input {
         v.extend(input::INCOMING.iter().map(|s| s.to_string()));
@@ -99,6 +125,15 @@ pub fn outgoing(on: &Enabled) -> Vec<String> {
     if on.clipboard {
         v.extend(clipboard::OUTGOING.iter().map(|s| s.to_string()));
     }
+    if on.battery {
+        v.extend(battery::OUTGOING.iter().map(|s| s.to_string()));
+    }
+    if on.findmyphone {
+        v.extend(findmyphone::OUTGOING.iter().map(|s| s.to_string()));
+    }
+    if on.notifications {
+        v.extend(notifications::OUTGOING.iter().map(|s| s.to_string()));
+    }
     v.extend(input::OUTGOING.iter().map(|s| s.to_string()));
     v
 }
@@ -108,6 +143,9 @@ pub fn receive(on: &Enabled, np: &Packet, share_ctx: impl FnOnce() -> share::Inc
     match np.kind.as_str() {
         ping::TYPE if on.ping => vec![ping::receive(np)],
         share::REQUEST | share::UPDATE if on.share => share::receive(np, share_ctx()),
+        battery::TYPE if on.battery => battery::receive(np).into_iter().collect(),
+        findmyphone::TYPE if on.findmyphone => vec![PluginEvent::Ring],
+        notifications::TYPE if on.notifications => notifications::receive(np).into_iter().collect(),
         _ => Vec::new(),
     }
 }
