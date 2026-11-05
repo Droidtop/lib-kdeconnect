@@ -70,7 +70,7 @@ fn pair_ping_restart_unpair() {
     wait(&a, "paired", |e| matches!(e, ServiceEvent::Paired { .. }));
 
     b.ping(&a_id, Some("hello")).unwrap();
-    let e = wait(&a, "ping", |e| matches!(e, ServiceEvent::Plugin { .. }));
+    let e = wait(&a, "ping", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Ping { .. }, .. }));
     assert_eq!(e, ServiceEvent::Plugin { id: b_id.clone(), plugin: PluginEvent::Ping { message: Some("hello".into()) } });
     let json = serde_json::to_value(&e).unwrap();
     assert_eq!(json["event"], "plugin");
@@ -107,6 +107,18 @@ fn pair_ping_restart_unpair() {
     assert_eq!(e, ServiceEvent::Plugin { id: b_id.clone(), plugin: PluginEvent::Clipboard { text: "copied on B".into() } });
     assert_eq!(a.clipboard_set("copied on B"), 0);
     assert_eq!(b.clipboard_set("copied on B"), 0);
+
+    // Remote input: A types into B and moves B's pointer; B can say it takes typing.
+    use kdeconnect_service::plugins::input::InputEvent;
+    let typed = InputEvent { key: Some("hi".into()), ..Default::default() };
+    a.input_send(&b_id, &typed).unwrap();
+    let e = wait(&b, "input", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Input { .. }, .. }));
+    assert_eq!(e, ServiceEvent::Plugin { id: a_id.clone(), plugin: PluginEvent::Input { input: typed } });
+    let moved = InputEvent { dx: 5.0, dy: -3.0, ..Default::default() };
+    a.input_send(&b_id, &moved).unwrap();
+    wait(&b, "move", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::Input { input }, .. } if input.dx == 5.0));
+    b.set_keyboard_ready(true);
+    wait(&a, "keyboard state", |e| matches!(e, ServiceEvent::Plugin { plugin: PluginEvent::KeyboardState { state: true }, .. }));
 
     // Restart A: it still knows B as paired, with B's address remembered, and links again.
     drop(a);

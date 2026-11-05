@@ -12,6 +12,8 @@
 //! | `addresses` | `addresses: [ip]` | `{}`: the extra addresses (added by hand, a VPN plugin's peers) |
 //! | `pair`, `accept`, `refuse`, `unpair` | `id` | `{}` |
 //! | `ping` | `id, message?` | `{}` |
+//! | `input_send` | `id, input: {dx?, dy?, x?, y?, scroll?, click?, key?, special_key?, shift?, ctrl?, alt?, super?}` | `{}` |
+//! | `keyboard_ready` | `ready` | `{}`: whether this device can take typing now |
 //! | `clipboard_set` | `text` | `{sent_to}`: this device's clipboard changed; sent to paired, reachable devices |
 //! | `share_text` | `id, text` | `{}` |
 //! | `share_url` | `id, url` | `{}` |
@@ -134,6 +136,15 @@ pub fn call_with(op: &str, args: &Value, link: Config) -> Value {
         "ping" => {
             let message = args.get("message").and_then(Value::as_str);
             running()?.ping(id(args)?, message).map(|_| json!({})).map_err(words)
+        }
+        "input_send" => {
+            let input: crate::plugins::input::InputEvent =
+                serde_json::from_value(args.get("input").cloned().unwrap_or(Value::Null)).map_err(|e| format!("not an input: {e}"))?;
+            running()?.input_send(id(args)?, &input).map(|_| json!({})).map_err(words)
+        }
+        "keyboard_ready" => {
+            running()?.set_keyboard_ready(args.get("ready").and_then(Value::as_bool).unwrap_or(false));
+            Ok(json!({}))
         }
         "clipboard_set" => {
             let text = args.get("text").and_then(Value::as_str).ok_or("no text")?;

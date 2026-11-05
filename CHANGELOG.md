@@ -18,3 +18,6 @@ All notable changes to lib-kdeconnect. Versions follow [Semantic Versioning](htt
   folder under a cleaned, unique name, and sent from a path or a handed-over file descriptor.
 - Clipboard: text each way (`kdeconnect.clipboard`), and on connecting with the time it changed
   (`.connect`, taken only when newer); a clip that just arrived is not sent back.
+- Remote input: pointer moves, scrolls, clicks, typed text and kde's 32 special keys with modifiers
+  (`kdeconnect.mousepad.request`), the echo a sender asks for, and the keyboard state, both as the
+  controlled device and as the controller.

@@ -2,6 +2,7 @@
 //! plugin that is off is neither advertised in the identity's capabilities nor answered.
 
 pub mod clipboard;
+pub mod input;
 pub mod ping;
 pub mod share;
 
@@ -14,6 +15,8 @@ pub struct Enabled {
     pub ping: bool,
     pub share: bool,
     pub clipboard: bool,
+    /// Paired devices may move this device's pointer and type into it.
+    pub input: bool,
 }
 
 impl Enabled {
@@ -23,6 +26,7 @@ impl Enabled {
             "ping" => self.ping = on,
             "share" => self.share = on,
             "clipboard" => self.clipboard = on,
+            "input" => self.input = on,
             _ => {}
         }
     }
@@ -30,7 +34,7 @@ impl Enabled {
 
 impl Default for Enabled {
     fn default() -> Self {
-        Enabled { ping: true, share: true, clipboard: true }
+        Enabled { ping: true, share: true, clipboard: true, input: true }
     }
 }
 
@@ -54,6 +58,10 @@ pub enum PluginEvent {
     FileSent { name: String, size: u64 },
     /// The other device's clipboard: put it on this one's.
     Clipboard { text: String },
+    /// A paired device moves the pointer or types: do it.
+    Input { input: input::InputEvent },
+    /// The device this one controls can take typing now, or not.
+    KeyboardState { state: bool },
     /// A file this device sent did not get there.
     FileSendFailed { name: String, why: String },
 }
@@ -70,6 +78,12 @@ pub fn incoming(on: &Enabled) -> Vec<String> {
     if on.clipboard {
         v.extend(clipboard::INCOMING.iter().map(|s| s.to_string()));
     }
+    if on.input {
+        v.extend(input::INCOMING.iter().map(|s| s.to_string()));
+    } else {
+        // Controlling others still needs their echo and keyboard state.
+        v.extend([input::ECHO, input::KEYBOARD_STATE].iter().map(|s| s.to_string()));
+    }
     v
 }
 
@@ -85,6 +99,7 @@ pub fn outgoing(on: &Enabled) -> Vec<String> {
     if on.clipboard {
         v.extend(clipboard::OUTGOING.iter().map(|s| s.to_string()));
     }
+    v.extend(input::OUTGOING.iter().map(|s| s.to_string()));
     v
 }
 

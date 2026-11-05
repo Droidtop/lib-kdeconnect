@@ -146,6 +146,8 @@ struct Inner {
     plugins: plugins::Enabled,
     receive_dir: Option<PathBuf>,
     clip: Mutex<plugins::clipboard::Clip>,
+    /// Whether this device can take typing now (droidtop: its input method is the active one).
+    keyboard_ready: std::sync::atomic::AtomicBool,
     trust: Mutex<TrustStore>,
     devices: Mutex<HashMap<String, DeviceState>>,
     events: Mutex<Sender<ServiceEvent>>,
@@ -231,6 +233,9 @@ impl Inner {
 
     /// The clipboard as it is now, to a device that has just been paired (android sends it when the plugin starts).
     fn send_clip_connect(&self, id: &str) {
+        if self.plugins.input {
+            let _ = self.send(id, plugins::input::keyboard_state(self.keyboard_ready.load(std::sync::atomic::Ordering::SeqCst)));
+        }
         if self.plugins.clipboard {
             if let Some(np) = self.clip.lock().unwrap_or_else(|e| e.into_inner()).connect_packet() {
                 let _ = self.send(id, np);
@@ -307,6 +312,10 @@ impl Inner {
         if paired {
             // Keep the address it was last reached at, for the next start.
             self.pin(&id);
+            if self.plugins.input {
+                let ready = self.keyboard_ready.load(std::sync::atomic::Ordering::SeqCst);
+                let _ = tx_for_connect.send(Cmd::Send(plugins::input::keyboard_state(ready)));
+            }
             if self.plugins.clipboard {
                 if let Some(np) = self.clip.lock().unwrap_or_else(|e| e.into_inner()).connect_packet() {
                     let _ = tx_for_connect.send(Cmd::Send(np));
@@ -396,6 +405,16 @@ impl Inner {
             }
             return;
         }
+        if matches!(np.kind.as_str(), plugins::input::REQUEST | plugins::input::ECHO | plugins::input::KEYBOARD_STATE) {
+            let (e, ack) = plugins::input::receive(&np, self.plugins.input);
+            if let Some(ack) = ack {
+                let _ = self.send(id, ack);
+            }
+            if let Some(e) = e {
+                self.emit(ServiceEvent::Plugin { id: id.to_owned(), plugin: e });
+            }
+            return;
+        }
         let me = Arc::clone(self);
         let device = id.to_owned();
         let ctx = || plugins::share::Incoming {
@@ -428,6 +447,7 @@ impl Service {
             plugins: settings.plugins,
             receive_dir: settings.receive_dir,
             clip: Mutex::new(Default::default()),
+            keyboard_ready: std::sync::atomic::AtomicBool::new(false),
             trust: Mutex::new(trust),
             devices: Mutex::new(HashMap::new()),
             events: Mutex::new(tx),
@@ -574,6 +594,21 @@ impl Service {
         }
         let ids: Vec<String> = self.devices().into_iter().filter(|d| d.paired && d.reachable).map(|d| d.id).collect();
         ids.iter().filter(|id| self.send(id, plugins::clipboard::packet(text)).is_ok()).count()
+    }
+
+    /// Moves the pointer of, or types into, the paired device `id`.
+    pub fn input_send(&self, id: &str, input: &plugins::input::InputEvent) -> Result<(), ServiceError> {
+        self.send(id, input.to_packet())
+    }
+
+    /// Whether this device can take typing now; told to every paired, reachable device when it changes.
+    pub fn set_keyboard_ready(&self, ready: bool) {
+        if !self.inner.plugins.input || self.inner.keyboard_ready.swap(ready, std::sync::atomic::Ordering::SeqCst) == ready {
+            return;
+        }
+        for d in self.devices().into_iter().filter(|d| d.paired && d.reachable) {
+            let _ = self.send(&d.id, plugins::input::keyboard_state(ready));
+        }
     }
 
     /// Shares a text (`kdeconnect.share.request` with `text`).
